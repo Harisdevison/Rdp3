@@ -1,10 +1,9 @@
-name: "Yanzz RDP"
+name: Yanzz RDP
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   repository_dispatch:
-    types:
-      - restart_rdp
+    types: [restart_rdp]
 
 jobs:
   secure-rdp:
@@ -12,60 +11,116 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Enable RDP + Firewall
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
-          netsh advfirewall firewall add rule name="AllowRDP" dir=in action=allow protocol=TCP localport=3389
-          Restart-Service -Name TermService -Force
+    # === Restore Data (biar file & profile aplikasi balik) ===
+    - name: Restore User Data
+      uses: actions/download-artifact@v3
+      with:
+        name: rdp-data
+        path: C:\Users\Yanzz
+      continue-on-error: true
 
-      - name: Create RDP User with Static Password
-        run: |
-          $password = "${{ secrets.RDP_PASSWORD }}"
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          if (-not (Get-LocalUser -Name "Yanzz")) {
-              New-LocalUser -Name "Yanzz" -Password $securePass -AccountNeverExpires
-          } else {
-              Set-LocalUser -Name "Yanzz" -Password $securePass
-          }
-          Add-LocalGroupMember -Group "Administrators" -Member "Yanzz"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz"
-          echo "RDP_CREDS=User: Yanzz | Password: $password" >> $env:GITHUB_ENV
+    - name: Enable RDP + Firewall
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+        netsh advfirewall firewall add rule name="AllowRDP" dir=in action=allow protocol=TCP localport=3389
+        Restart-Service -Name TermService -Force
 
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+    - name: Create RDP User with Static Password
+      run: |
+        $password = "${{ secrets.RDP_PASSWORD }}"
+        $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+        if (-not (Get-LocalUser -Name "Yanzz")) {
+            New-LocalUser -Name "Yanzz" -Password $securePass -AccountNeverExpires
+        } else {
+            Set-LocalUser -Name "Yanzz" -Password $securePass
+        }
+        Add-LocalGroupMember -Group "Administrators" -Member "Yanzz"
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz"
+        echo "RDP_CREDS=User: Yanzz | Password: $password" >> $env:GITHUB_ENV
 
-      - name: Connect to Tailscale (Static Hostname)
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
-            --hostname=rdp-github `
-            --reset `
-            --ssh
+    # === Install Apps ===
+    - name: Install Google Chrome
+      run: |
+        $chromeUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+        $chromePath = "$env:TEMP\chrome_installer.exe"
+        Invoke-WebRequest -Uri $chromeUrl -OutFile $chromePath
+        Start-Process -FilePath $chromePath -ArgumentList "/silent", "/install" -Wait
+        Remove-Item $chromePath -Force
 
-          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+    - name: Install VSCode
+      run: |
+        $vscodeUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
+        $vscodePath = "$env:TEMP\vscode_installer.exe"
+        Invoke-WebRequest -Uri $vscodeUrl -OutFile $vscodePath
+        Start-Process -FilePath $vscodePath -ArgumentList "/silent", "/mergetasks=!runcode" -Wait
+        Remove-Item $vscodePath -Force
 
-      - name: Test RDP Port
-        run: |
-          $test = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $test.TcpTestSucceeded) {
-            Write-Error "Port 3389 not open"
-            exit 1
-          }
+    - name: Install Node.js LTS
+      run: |
+        $nodeUrl = "https://nodejs.org/dist/v20.17.0/node-v20.17.0-x64.msi"
+        $nodePath = "$env:TEMP\node.msi"
+        Invoke-WebRequest -Uri $nodeUrl -OutFile $nodePath
+        Start-Process msiexec.exe -ArgumentList "/i", "`"$nodePath`"", "/quiet", "/norestart" -Wait
+        Remove-Item $nodePath -Force
 
-      - name: Notify via Telegram
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          $message = @"
+    - name: Install 7-Zip
+      run: |
+        $zipUrl = "https://www.7-zip.org/a/7z2408-x64.exe"
+        $zipPath = "$env:TEMP\7zip_installer.exe"
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+        Start-Process -FilePath $zipPath -ArgumentList "/S" -Wait
+        Remove-Item $zipPath -Force
+
+    - name: Install Telegram Desktop
+      run: |
+        $tgUrl = "https://updates.tdesktop.com/tsetup/tsetup-x64.4.16.8.exe"
+        $tgPath = "$env:TEMP\telegram_installer.exe"
+        Invoke-WebRequest -Uri $tgUrl -OutFile $tgPath
+        Start-Process -FilePath $tgPath -ArgumentList "/silent" -Wait
+        Remove-Item $tgPath -Force
+
+    - name: Install Git
+      run: |
+        $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.47.0.windows.1/Git-2.47.0-64-bit.exe"
+        $gitPath = "$env:TEMP\git_installer.exe"
+        Invoke-WebRequest -Uri $gitUrl -OutFile $gitPath
+        Start-Process -FilePath $gitPath -ArgumentList "/VERYSILENT", "/NORESTART" -Wait
+        Remove-Item $gitPath -Force
+
+    - name: Install Tailscale
+      run: |
+        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
+        $installerPath = "$env:TEMP\tailscale.msi"
+        Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+        Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+        Remove-Item $installerPath -Force
+
+    - name: Connect to Tailscale (Static Hostname)
+      run: |
+        & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+          --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+          --hostname=rdp-github `
+          --reset `
+          --ssh
+        $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+        echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+    - name: Test RDP Port
+      run: |
+        $test = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+        if (-not $test.TcpTestSucceeded) {
+          Write-Error "Port 3389 not open"
+          exit 1
+        }
+
+    - name: Notify via Telegram
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        $message = @"
 🔔 *GitHub RDP Session Started*
 
 🖥️ *User:* Yanzz  
@@ -74,17 +129,28 @@ jobs:
 🕒 *Session ID:* $env:GITHUB_RUN_ID  
 🔁 *Auto-Restart:* ON  
 "@
-          $encodedMessage = [System.Web.HttpUtility]::UrlEncode($message)
-          $url = "https://api.telegram.org/bot$env:TELEGRAM_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$encodedMessage&parse_mode=Markdown"
-          Invoke-RestMethod -Uri $url -Method Get
+        $encodedMessage = [System.Web.HttpUtility]::UrlEncode($message)
+        $url = "https://api.telegram.org/bot$env:TELEGRAM_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$encodedMessage&parse_mode=Markdown"
+        Invoke-RestMethod -Uri $url -Method Get
 
-      - name: Keep RDP Alive
-        run: |
-          Write-Host "`n=== RDP READY ==="
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          Write-Host "Username: Yanzz"
-          Start-Sleep -Seconds 18000  # 5 jam
+    - name: Keep RDP Alive
+      run: |
+        Write-Host "`n=== RDP READY ==="
+        Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+        Write-Host "Username: Yanzz"
+        Start-Sleep -Seconds 18000  # 5 jam
 
-      - name: Auto-Restart Workflow
-        run: |
-          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/dispatches -d '{"event_type":"restart_rdp"}'
+    # === Backup Data (supaya file & profile aplikasi balik nanti) ===
+    - name: Backup User Data
+      uses: actions/upload-artifact@v3
+      with:
+        name: rdp-data
+        path: C:\Users\Yanzz
+
+    - name: Auto-Restart Workflow
+      run: |
+        curl -X POST \
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{ github.repository }}/dispatches \
+          -d '{"event_type":"restart_rdp"}'
