@@ -33,9 +33,13 @@ jobs:
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz" -ErrorAction SilentlyContinue
         echo "RDP_CREDS=User: Yanzz | Password: $password" >> $env:GITHUB_ENV
 
-    - name: Install Tailscale
+    - name: Install Tailscale (Auto-latest)
       run: |
-        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
+        $indexUrl = "https://pkgs.tailscale.com/stable/"
+        $html = Invoke-WebRequest -Uri $indexUrl
+        $latest = ($html.Links | Where-Object { $_.href -match "tailscale-setup-.*-amd64.msi" } | Select-Object -Last 1).href
+        $tsUrl = "https://pkgs.tailscale.com/stable/$latest"
+        Write-Host "📥 Downloading $tsUrl"
         $installerPath = "$env:TEMP\tailscale.msi"
         Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
         Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
