@@ -23,17 +23,112 @@ jobs:
       run: |
         $password = "${{ secrets.RDP_PASSWORD }}"
         $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-        if (-not (Get-LocalUser -Name "Yanzz")) {
+        $user = Get-LocalUser -Name "Yanzz" -ErrorAction SilentlyContinue
+        if (-not $user) {
             New-LocalUser -Name "Yanzz" -Password $securePass -AccountNeverExpires
         } else {
             Set-LocalUser -Name "Yanzz" -Password $securePass
         }
-        Add-LocalGroupMember -Group "Administrators" -Member "Yanzz"
-        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz"
+        Add-LocalGroupMember -Group "Administrators" -Member "Yanzz" -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz" -ErrorAction SilentlyContinue
         echo "RDP_CREDS=User: Yanzz | Password: $password" >> $env:GITHUB_ENV
 
     - name: Install Tailscale
       run: |
+        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
+        $installerPath = "$env:TEMP\tailscale.msi"
+        Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+        Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+        Remove-Item $installerPath -Force
+
+    - name: Connect to Tailscale (Static Hostname)
+      run: |
+        & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+          --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+          --hostname=rdp-github `
+          --reset `
+          --ssh
+
+        $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+        echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+    - name: Install Google Chrome
+      run: |
+        $chromeUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+        $chromeInstaller = "$env:TEMP\chrome_installer.exe"
+        Invoke-WebRequest -Uri $chromeUrl -OutFile $chromeInstaller
+        Start-Process -FilePath $chromeInstaller -Args "/silent /install" -Wait
+        Remove-Item $chromeInstaller -Force
+
+    - name: Restore User Data
+      uses: actions/download-artifact@v4
+      with:
+        name: user-data
+        path: C:\Users\Yanzz
+      continue-on-error: true
+
+    - name: Restore Chrome Registry (if exists)
+      run: |
+        $regFile = "C:\Users\Yanzz\chrome_registry.reg"
+        if (Test-Path $regFile) {
+          reg import $regFile
+        }
+
+    - name: Test RDP Port
+      run: |
+        $test = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+        if (-not $test.TcpTestSucceeded) {
+          Write-Error "Port 3389 not open"
+          exit 1
+        }
+
+    - name: Notify via Telegram
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: |
+        $message = "🔔 GitHub RDP Started`n`n🖥️ User: Yanzz`n🔐 Password: $env:RDP_CREDS`n🌐 Tailscale IP: $env:TAILSCALE_IP`n🕒 Session ID: $env:GITHUB_RUN_ID`n🔁 Auto-Restart: ON"
+        $url = "https://api.telegram.org/bot$env:TELEGRAM_TOKEN/sendMessage"
+        $body = @{
+          chat_id = $env:TELEGRAM_CHAT_ID
+          text = $message
+          parse_mode = "Markdown"
+        }
+        Invoke-RestMethod -Uri $url -Method Post -Body $body
+
+    - name: Keep RDP Alive
+      run: |
+        Write-Host "`n=== RDP READY ==="
+        Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+        Write-Host "Username: Yanzz"
+        Start-Sleep -Seconds 18000  # 5 jam
+
+    - name: Backup User Data
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: user-data
+        path: |
+          C:\Users\Yanzz\AppData\Local\Google\Chrome\User Data
+          C:\Users\Yanzz\Desktop
+          C:\Users\Yanzz\Documents
+          C:\Users\Yanzz\Downloads
+          C:\Users\Yanzz\Pictures
+          C:\Users\Yanzz\Videos
+          C:\Users\Yanzz\chrome_registry.reg
+
+    - name: Backup Chrome Registry
+      if: always()
+      run: |
+        reg export "HKCU\Software\Google\Chrome" "C:\Users\Yanzz\chrome_registry.reg" /y
+
+    - name: Auto-Restart Workflow
+      run: |
+        curl -X POST `
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" `
+          -H "Accept: application/vnd.github.v3+json" `
+          https://api.github.com/repos/${{ github.repository }}/dispatches `
+          -d '{"event_type":"restart_rdp"}'
         $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
         $installerPath = "$env:TEMP\tailscale.msi"
         Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
