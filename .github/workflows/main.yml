@@ -35,7 +35,7 @@ jobs:
 
     - name: Install Tailscale
       run: |
-        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
         $installerPath = "$env:TEMP\tailscale.msi"
         Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
         Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
@@ -46,8 +46,7 @@ jobs:
         & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
           --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
           --hostname=rdp-github `
-          --reset `
-          --ssh
+          --reset
 
         $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
         echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
