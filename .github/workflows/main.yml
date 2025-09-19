@@ -49,7 +49,6 @@ jobs:
             --reset `
             --ssh
 
-          # Dapatkan IP
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
@@ -88,66 +87,4 @@ jobs:
 
       - name: Auto-Restart Workflow
         run: |
-          curl -X POST ^
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" ^
-            -H "Accept: application/vnd.github.v3+json" ^
-            https://api.github.com/repos/${{ github.repository }}/dispatches ^
-            -d "{\"event_type\":\"restart_rdp\"}"
-        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.msi"
-        $installerPath = "$env:TEMP\tailscale.msi"
-        Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-        Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-        Remove-Item $installerPath -Force
-
-    - name: Connect to Tailscale (Static Hostname)
-      run: |
-        & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-          --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
-          --hostname=rdp-github `
-          --reset `
-          --ssh
-
-        # Dapatkan IP
-        $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-        echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
-    - name: Test RDP Port
-      run: |
-        $test = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-        if (-not $test.TcpTestSucceeded) {
-          Write-Error "Port 3389 not open"
-          exit 1
-        }
-
-    - name: Notify via Telegram
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: |
-        $message = @"
-🔔 *GitHub RDP Session Started*
-
-🖥️ *User:* Yanzz  
-🔐 *Password:* $env:RDP_CREDS  
-🌐 *Tailscale IP:* $env:TAILSCALE_IP  
-🕒 *Session ID:* $env:GITHUB_RUN_ID  
-🔁 *Auto-Restart:* ON  
-"@
-        $encodedMessage = [System.Web.HttpUtility]::UrlEncode($message)
-        $url = "https://api.telegram.org/bot$env:TELEGRAM_TOKEN/sendMessage?chat_id=$env:TELEGRAM_CHAT_ID&text=$encodedMessage&parse_mode=Markdown"
-        Invoke-RestMethod -Uri $url -Method Get
-
-    - name: Keep RDP Alive
-      run: |
-        Write-Host "`n=== RDP READY ==="
-        Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-        Write-Host "Username: Yanzz"
-        Start-Sleep -Seconds 18000  # 5 jam
-
-    - name: Auto-Restart Workflow
-      run: |
-        curl -X POST \
-          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/${{ github.repository }}/dispatches \
-          -d '{"event_type":"restart_rdp"}'
+          curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/dispatches -d '{"event_type":"restart_rdp"}'
