@@ -128,11 +128,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: user-data
+        if-no-files-found: ignore
         path: |
           C:\Users\Yanzz\AppData\Local\Google\Chrome\User Data
           C:\Users\Yanzz\AppData\Local\Microsoft\Edge\User Data
           C:\Users\Yanzz\Desktop
-          C:\Users\Yanzz\Documents
+          C:\Users\Yanzz\Documents\*
           C:\Users\Yanzz\Downloads
           C:\Users\Yanzz\Pictures
           C:\Users\Yanzz\Videos
