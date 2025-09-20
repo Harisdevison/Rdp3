@@ -33,13 +33,9 @@ jobs:
         Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Yanzz" -ErrorAction SilentlyContinue
         echo "RDP_CREDS=User: Yanzz | Password: $password" >> $env:GITHUB_ENV
 
-    - name: Install Tailscale (Auto-latest)
+    - name: Install Tailscale
       run: |
-        $indexUrl = "https://pkgs.tailscale.com/stable/"
-        $html = Invoke-WebRequest -Uri $indexUrl
-        $latest = ($html.Links | Where-Object { $_.href -match "tailscale-setup-.*-amd64.msi" } | Select-Object -Last 1).href
-        $tsUrl = "https://pkgs.tailscale.com/stable/$latest"
-        Write-Host "📥 Downloading $tsUrl"
+        $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
         $installerPath = "$env:TEMP\tailscale.msi"
         Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
         Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
@@ -84,6 +80,15 @@ jobs:
           reg import $regFile
         }
 
+    - name: Check Restore Result
+      if: always()
+      run: |
+        if (-not (Test-Path "C:\Users\Yanzz\Desktop") -and -not (Test-Path "C:\Users\Yanzz\AppData")) {
+          echo "RESTORE_STATUS=⚠️ No previous data found (fresh profile)" >> $env:GITHUB_ENV
+        } else {
+          echo "RESTORE_STATUS=✅ User data restored successfully" >> $env:GITHUB_ENV
+        }
+
     - name: Test RDP Port
       run: |
         $test = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
@@ -97,7 +102,7 @@ jobs:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
-        $message = "🔔 GitHub RDP Started`n`n🖥️ User: Yanzz`n🔐 Password: $env:RDP_CREDS`n🌐 Tailscale IP: $env:TAILSCALE_IP`n🕒 Session ID: $env:GITHUB_RUN_ID`n🔁 Auto-Restart: ON"
+        $message = "🔔 GitHub RDP Started`n`n🖥️ User: Yanzz`n🔐 Password: $env:RDP_CREDS`n🌐 Tailscale IP: $env:TAILSCALE_IP`n📂 Restore Status: $env:RESTORE_STATUS`n🕒 Session ID: $env:GITHUB_RUN_ID`n🔁 Auto-Restart: ON"
         $url = "https://api.telegram.org/bot$env:TELEGRAM_TOKEN/sendMessage"
         $body = @{
           chat_id = $env:TELEGRAM_CHAT_ID
@@ -128,17 +133,17 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: user-data
-        if-no-files-found: ignore
         path: |
           C:\Users\Yanzz\AppData\Local\Google\Chrome\User Data
           C:\Users\Yanzz\AppData\Local\Microsoft\Edge\User Data
           C:\Users\Yanzz\Desktop
-          C:\Users\Yanzz\Documents\*
+          C:\Users\Yanzz\Documents
           C:\Users\Yanzz\Downloads
           C:\Users\Yanzz\Pictures
           C:\Users\Yanzz\Videos
           C:\Users\Public\chrome_registry.reg
           C:\Users\Public\edge_registry.reg
+        if-no-files-found: ignore   # biar gak error kalau kosong
 
     - name: Auto-Restart Workflow
       run: |
